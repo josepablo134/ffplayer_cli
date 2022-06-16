@@ -1,0 +1,93 @@
+#! /usr/bin/python3
+"""
+ToDo:
+    Make a pipefile and an API to add and control the player
+    In order to control the player we can use ffplayer thread or
+    consume the API
+"""
+import os
+import sys
+import time
+import argparse
+
+CNF_PLAYLIST_FILE="/opt/josepablocb/scripts/ffplay_player/playlist.txt"
+CNF_LOCK_FILE="/opt/josepablocb/scripts/ffplay_player/lockfile.lck"
+CNF_WAIT_TIME=1.0
+
+import fcntl
+class Locker:
+    def __enter__(self):
+        self.fp = open(CNF_LOCK_FILE)
+        fcntl.flock(self.fp.fileno() , fcntl.LOCK_EX)
+    def __exit__(self , _type , value , tb):
+        fcntl.flock(self.fp.fileno() , fcntl.LOCK_EX)
+        self.fp.close()
+
+def getNextSong( playlist_file : str ) -> str:
+    song_path = None
+    try:
+        with open( playlist_file , "r+" ) as file:
+            lines = file.readlines()
+        with open( playlist_file , "w") as file:
+            if( len( lines ) > 0 ):
+                song_path = lines.pop(0)
+                file.seek(0)
+                file.truncate()
+                file.writelines( lines )
+    except Exception as error:
+        print( error )
+        print("No song available")
+    return song_path
+
+def addSong( playlist_file : str , song_name : str ) -> str:
+    song_path = "\"%s/%s\"\n" % ( os.getcwd() , song_name )
+    try:
+        if( os.path.exists( song_name ) ):
+            print("Adding %s"%song_path)
+            with open( playlist_file , "a") as file:
+                file.write( song_path )
+        else:
+            print("Song does not exists: %s" % song_name , file=sys.stderr)
+    except Exception as error:
+        print( error )
+
+def play_song( song_file : str ):
+    try:
+        print( song_file )
+        cmd = "ffplay -nodisp -autoexit %s" % song_file
+        os.system( cmd )
+    except Exception as error:
+        print( error , file=sys.stderr )
+
+def service():
+    while( True ):
+        with Locker():
+            song = getNextSong( CNF_PLAYLIST_FILE )
+        if( song != None ):
+            play_song( song )
+        else:
+            time.sleep( CNF_WAIT_TIME )
+
+def getArgParser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-a","--add",help="Add song file to the list")
+    parser.add_argument("-s","--start",help="Start reading and playing songs",action="store_true")
+    return parser
+
+def main():
+    parser = getArgParser()
+    args = vars( parser.parse_args() )
+    if( args["start"] ):
+        service()
+    elif( args["add"] ):
+        with Locker():
+            song_file = " ".join( sys.argv[2:] )
+            addSong( CNF_PLAYLIST_FILE, song_file )
+    else:
+        parser.print_help( file=sys.stderr )
+
+if __name__ == "__main__":
+    #try:
+    main()
+    #except Exception as error:
+    #print( error.with_traceback() , file=sys.stderr )
